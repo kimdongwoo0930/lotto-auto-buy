@@ -1,95 +1,95 @@
 name: 🎰 로또 자동 구매
 
 on:
-  # ── 매주 금요일 오후 9시 KST (UTC 12:00)
-  schedule:
-    - cron: "0 12 * * 5"
-    # ── 매주 토요일 밤 11시 KST (UTC 14:00) 당첨 확인
-    - cron: "0 14 * * 6"
+    # ── 매주 금요일 오후 9시 KST (UTC 12:00)
+    schedule:
+        - cron: '0 12 * * 5'
+        # ── 매주 토요일 밤 11시 KST (UTC 14:00) 당첨 확인
+        - cron: '0 14 * * 6'
 
-  # ── 수동 실행
-  workflow_dispatch:
-    inputs:
-      mode:
-        description: "실행 모드"
-        required: true
-        default: "buy"
-        type: choice
-        options:
-          - buy # 구매만
-          - check # 당첨 확인만
-          - buy+check # 구매 후 즉시 확인 (테스트용)
+    # ── 수동 실행
+    workflow_dispatch:
+        inputs:
+            mode:
+                description: '실행 모드'
+                required: true
+                default: 'buy'
+                type: choice
+                options:
+                    - buy # 구매만
+                    - check # 당첨 확인만
+                    - buy+check # 구매 후 즉시 확인 (테스트용)
 
 jobs:
-  # ════════════════════════════════════════
-  # JOB 1: 로또 구매 (금요일 자동 or 수동)
-  # ════════════════════════════════════════
-  buy-lotto:
-    name: 🎟️ 로또 구매
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: |
-      (github.event_name == 'schedule' && github.event.schedule == '0 12 * * 5') ||
-      (github.event_name == 'workflow_dispatch' && (inputs.mode == 'buy' || inputs.mode == 'buy+check'))
-    outputs:
-      purchased_numbers: ${{ steps.buy.outputs.purchased_numbers }}
+    # ════════════════════════════════════════
+    # JOB 1: 로또 구매 (금요일 자동 or 수동)
+    # ════════════════════════════════════════
+    buy-lotto:
+        name: 🎟️ 로또 구매
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        if: |
+            (github.event_name == 'schedule' && github.event.schedule == '0 12 * * 5') ||
+            (github.event_name == 'workflow_dispatch' && (inputs.mode == 'buy' || inputs.mode == 'buy+check'))
+        outputs:
+            purchased_numbers: ${{ steps.buy.outputs.purchased_numbers }}
 
-    steps:
-      - name: 📥 코드 체크아웃
-        uses: actions/checkout@v4
+        steps:
+            - name: 📥 코드 체크아웃
+              uses: actions/checkout@v4
 
-      - name: 🐍 Python 설정
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+            - name: 🐍 Python 설정
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.11'
 
-      - name: 📦 의존성 설치
-        run: |
-          pip install playwright httpx python-dotenv
-          playwright install chromium
-          playwright install-deps chromium
+            - name: 📦 의존성 설치
+              run: |
+                  pip install playwright httpx python-dotenv
+                  playwright install chromium
+                  playwright install-deps chromium
 
-      - name: 🎰 로또 구매 실행
-        id: buy
-        env:
-          LOTTO_ID: ${{ secrets.LOTTO_ID }}
-          LOTTO_PW: ${{ secrets.LOTTO_PW }}
-          API_KEY: ${{ secrets.API_KEY }}
-          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
-          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
-        run: |
-          cd src && python lotto_buyer.py
+            - name: 🎰 로또 구매 실행
+              id: buy
+              env:
+                  LOTTO_ID: ${{ secrets.LOTTO_ID }}
+                  LOTTO_PW: ${{ secrets.LOTTO_PW }}
+                  API_KEY: ${{ secrets.API_KEY }}
+                  KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+                  KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+              run: |
+                  cd src && python lotto_buyer.py
 
-  # ════════════════════════════════════════
-  # JOB 2: 당첨 확인 (토요일 자동 or 수동)
-  # ════════════════════════════════════════
-  check-winner:
-    name: 🏆 당첨 확인
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [buy-lotto]
-    if: |
-      always() && (
-        (github.event_name == 'schedule' && github.event.schedule == '0 14 * * 6') ||
-        (github.event_name == 'workflow_dispatch' && (inputs.mode == 'check' || inputs.mode == 'buy+check'))
-      )
+    # ════════════════════════════════════════
+    # JOB 2: 당첨 확인 (토요일 자동 or 수동)
+    # ════════════════════════════════════════
+    check-winner:
+        name: 🏆 당첨 확인
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        needs: [buy-lotto]
+        if: |
+            always() && (
+              (github.event_name == 'schedule' && github.event.schedule == '0 14 * * 6') ||
+              (github.event_name == 'workflow_dispatch' && (inputs.mode == 'check' || inputs.mode == 'buy+check'))
+            )
 
-    steps:
-      - name: 📥 코드 체크아웃
-        uses: actions/checkout@v4
+        steps:
+            - name: 📥 코드 체크아웃
+              uses: actions/checkout@v4
 
-      - name: 🐍 Python 설정
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+            - name: 🐍 Python 설정
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.11'
 
-      - name: 📦 의존성 설치
-        run: pip install httpx
+            - name: 📦 의존성 설치
+              run: pip install httpx
 
-      - name: 🏆 당첨 확인 실행
-        env:
-          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
-          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
-          PURCHASED_NUMBERS: ${{ needs.buy-lotto.outputs.purchased_numbers }}
-        run: |
-          cd src && python check_winner.py
+            - name: 🏆 당첨 확인 실행
+              env:
+                  KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+                  KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+                  PURCHASED_NUMBERS: ${{ needs.buy-lotto.outputs.purchased_numbers }}
+              run: |
+                  cd src && python check_number.py
