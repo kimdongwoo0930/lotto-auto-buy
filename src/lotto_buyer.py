@@ -116,7 +116,7 @@ async def _buy_batch(page: Page, batch: list[list[int]], batch_start: int) -> No
         for num in nums:
             await page.locator(f'label[for="check645num{num}"]').scroll_into_view_if_needed()
             await page.click(f'label[for="check645num{num}"]')
-            await page.wait_for_timeout(300)
+            await page.wait_for_timeout(1000)
 
         await page.select_option("select#amoundApply", "1")
         await page.click('input[value="확인"]#btnSelectNum')
