@@ -131,9 +131,22 @@ async def _buy_batch(page: Page, batch: list[list[int]], batch_start: int) -> No
 
     # 구매 버튼 클릭
     await page.click("button#btnBuy")
-    # 구매 확인 팝업 대기 후 클릭
+
+    # 구매 확인 팝업 vs 오류 팝업 동시 대기
     confirm_sel = 'input[value="확인"][onclick="javascript:closepopupLayerConfirm(true);"]'
-    await page.wait_for_selector(confirm_sel, timeout=10000)
+    error_sel   = '.msgPop[role="alertdialog"]'
+    await page.wait_for_selector(f"{confirm_sel}, {error_sel}", timeout=10000)
+
+    # 오류 팝업이 떴으면 메시지 읽고 예외 발생
+    error_pop = page.locator(error_sel).first
+    if await error_pop.is_visible(timeout=500):
+        msg = (await error_pop.inner_text()).strip()
+        if any(kw in msg for kw in ["잔액", "예치금", "부족", "충전"]):
+            raise InsufficientBalanceError(
+                f"{msg}\n동행복권 사이트에서 충전 후 다시 시도해주세요."
+            )
+        raise Exception(f"구매 실패: {msg}")
+
     await page.click(confirm_sel)
 
 
@@ -195,13 +208,14 @@ async def buy_lotto(all_numbers: list[list[int]]) -> list[list[int]]:
                 await _open_game_page(page)
                 await _buy_batch(page, batch, batch_start)
 
-                # 결과 파싱 실패 시 입력 번호로 대체 (구매는 이미 완료됨)
+                # 결과 파싱 실패 시 입력 번호로 대체 (구매 확인까지 완료된 상태)
                 try:
                     batch_result = await _parse_results(page)
                     if not batch_result:
                         raise ValueError("빈 결과")
+                    print(f"   🔍 구매 확인된 번호: {batch_result}")
                 except Exception as e:
-                    print(f"   ⚠️  결과 파싱 실패({e}) → 입력 번호로 대체")
+                    print(f"   ⚠️  결과 파싱 실패 → 입력 번호로 대체 ({e})")
                     batch_result = batch
 
                 purchased.extend(batch_result)
