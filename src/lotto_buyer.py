@@ -152,7 +152,20 @@ async def _buy_batch(page: Page, batch: list[list[int]], batch_start: int) -> No
 
 # ── 구매 결과 파싱 ─────────────────────────────────────
 async def _parse_results(page: Page) -> list[list[int]]:
-    await page.wait_for_selector("#reportRow .nums", timeout=20000)
+    try:
+        await page.wait_for_selector("#reportRow .nums", timeout=20000)
+    except Exception:
+        # 결과 대신 오류 팝업이 있는지 먼저 확인
+        error_pop = page.locator('.msgPop[role="alertdialog"]').first
+        if await error_pop.is_visible(timeout=1000):
+            msg = (await error_pop.inner_text()).strip()
+            if any(kw in msg for kw in ["잔액", "예치금", "부족", "충전"]):
+                raise InsufficientBalanceError(
+                    f"{msg}\n동행복권 사이트에서 충전 후 다시 시도해주세요."
+                )
+            raise Exception(f"구매 실패: {msg}")
+        raise  # 오류 팝업도 없으면 원래 timeout 재발생
+
     result_els = await page.locator("#reportRow .nums").all()
     results = []
     for el in result_els:
@@ -214,6 +227,8 @@ async def buy_lotto(all_numbers: list[list[int]]) -> list[list[int]]:
                     if not batch_result:
                         raise ValueError("빈 결과")
                     print(f"   🔍 구매 확인된 번호: {batch_result}")
+                except InsufficientBalanceError:
+                    raise  # 잔액 부족은 fallback 없이 바로 위로 전파
                 except Exception as e:
                     print(f"   ⚠️  결과 파싱 실패 → 입력 번호로 대체 ({e})")
                     batch_result = batch
