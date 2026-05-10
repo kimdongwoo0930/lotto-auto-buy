@@ -139,7 +139,7 @@ async def _buy_batch(page: Page, batch: list[list[int]], batch_start: int) -> No
 
 # ── 구매 결과 파싱 ─────────────────────────────────────
 async def _parse_results(page: Page) -> list[list[int]]:
-    await page.wait_for_selector("#reportRow .nums", timeout=10000)
+    await page.wait_for_selector("#reportRow .nums", timeout=20000)
     result_els = await page.locator("#reportRow .nums").all()
     results = []
     for el in result_els:
@@ -194,9 +194,17 @@ async def buy_lotto(all_numbers: list[list[int]]) -> list[list[int]]:
 
                 await _open_game_page(page)
                 await _buy_batch(page, batch, batch_start)
-                batch_result = await _parse_results(page)
 
-                purchased.extend(batch_result if batch_result else batch)
+                # 결과 파싱 실패 시 입력 번호로 대체 (구매는 이미 완료됨)
+                try:
+                    batch_result = await _parse_results(page)
+                    if not batch_result:
+                        raise ValueError("빈 결과")
+                except Exception as e:
+                    print(f"   ⚠️  결과 파싱 실패({e}) → 입력 번호로 대체")
+                    batch_result = batch
+
+                purchased.extend(batch_result)
                 print(f"   ✅ {len(batch)}게임 구매 완료!")
 
             print(f"\n🎉 총 {len(purchased)}장 구매 완료!")
