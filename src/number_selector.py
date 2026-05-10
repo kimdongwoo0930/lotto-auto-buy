@@ -10,7 +10,7 @@ import random
 import httpx
 
 GEMINI_KEY = os.environ.get("API_KEY", "")
-GEMINI_MODEL = "gemini-1.5-pro"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 async def get_ai_numbers(count: int) -> list[list[int]]:
@@ -41,8 +41,7 @@ async def get_ai_numbers(count: int) -> list[list[int]]:
             },
         )
         data = resp.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
-        result = json.loads(text)
+        result = json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
         numbers = [sorted(s) for s in result["numbers"]]
         print(f"🤖 Gemini 추천 번호 {count}세트:")
         for i, nums in enumerate(numbers):
@@ -66,3 +65,4 @@ async def select_numbers(total: int) -> list[list[int]]:
         print(f"   {i+1}게임: {nums}")
 
     return numbers
+
