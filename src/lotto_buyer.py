@@ -12,7 +12,7 @@ from datetime import datetime
 from playwright.async_api import async_playwright, Page
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from number_selector import select_numbers
 from kakao_notify import notify_purchase, notify_error
@@ -234,6 +234,21 @@ async def buy_lotto(all_numbers: list[list[int]]) -> list[list[int]]:
             await browser.close()
 
 
+# ── 구매 번호 파일 저장 ────────────────────────────────
+def save_purchased_json(numbers: list[list[int]]) -> None:
+    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    os.makedirs(data_dir, exist_ok=True)
+    json_path = os.path.join(data_dir, "purchased.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {"date": datetime.now().strftime("%Y-%m-%d"), "numbers": numbers},
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+    print(f"💾 구매 번호 저장: {json_path}")
+
+
 # ── GitHub Actions Summary 기록 ────────────────────────
 def write_summary(numbers: list[list[int]]) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
@@ -262,6 +277,7 @@ async def main() -> None:
 
     numbers   = await select_numbers(total)
     purchased = await buy_lotto(numbers)
+    save_purchased_json(purchased)
     write_summary(purchased)
     notify_purchase(purchased)
 
