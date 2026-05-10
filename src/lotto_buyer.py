@@ -84,25 +84,18 @@ async def _login(page: Page) -> None:
 
 # ── 예치금 확인 ────────────────────────────────────────
 async def _check_balance(page: Page, needed: int) -> None:
-    """예치금 확인 (실패해도 구매는 계속 진행)"""
-    try:
-        for sel in ["#totalCash", ".total_cash", "[class*='balance']", "[class*='deposit']"]:
-            el = page.locator(sel).first
-            if await el.count() > 0 and await el.is_visible(timeout=1000):
-                text = await el.inner_text()
-                balance = int("".join(c for c in text if c.isdigit()))
-                print(f"💰 예치금: {balance:,}원 | 필요금액: {needed:,}원")
-                if balance < needed:
-                    raise InsufficientBalanceError(
-                        f"예치금 부족! 현재: {balance:,}원 / 필요: {needed:,}원\n"
-                        f"동행복권 사이트에서 {needed - balance:,}원 이상 충전해주세요."
-                    )
-                return
-        print("⚠️  예치금 확인 불가 — 구매 계속 진행")
-    except InsufficientBalanceError:
-        raise
-    except Exception:
-        print("⚠️  예치금 확인 중 오류 — 구매 계속 진행")
+    await page.goto(f"{BASE_URL}/mypage/home")
+    await page.wait_for_load_state("networkidle")
+
+    text = await page.locator("#totalAmt").inner_text()
+    balance = int(text.replace(",", "").strip() or "0")
+    print(f"💰 예치금: {balance:,}원 | 필요금액: {needed:,}원")
+
+    if balance < needed:
+        raise InsufficientBalanceError(
+            f"예치금 부족! 현재: {balance:,}원 / 필요: {needed:,}원\n"
+            f"동행복권 사이트에서 {needed - balance:,}원 이상 충전해주세요."
+        )
 
 
 # ── 구매 페이지 열기 ───────────────────────────────────
@@ -205,9 +198,7 @@ async def buy_lotto(all_numbers: list[list[int]]) -> list[list[int]]:
             # 1. 로그인
             await _login(page)
 
-            # 2. 예치금 확인 (메인 페이지)
-            await page.goto(f"{BASE_URL}/main")
-            await page.wait_for_load_state("networkidle")
+            # 2. 예치금 확인
             await _check_balance(page, len(all_numbers) * 1000)
 
             # 3. 구매 (5게임씩 배치)
