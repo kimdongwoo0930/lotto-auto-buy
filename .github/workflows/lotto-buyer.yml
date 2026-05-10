@@ -32,11 +32,11 @@ jobs:
         name: 🎟️ 로또 구매
         runs-on: ubuntu-latest
         timeout-minutes: 15
+        permissions:
+            contents: write
         if: |
             (github.event_name == 'schedule' && github.event.schedule == '0 12 * * 5') ||
             (github.event_name == 'workflow_dispatch' && (inputs.mode == 'buy' || inputs.mode == 'buy+check'))
-        outputs:
-            purchased_numbers: ${{ steps.buy.outputs.purchased_numbers }}
 
         steps:
             - name: 📥 코드 체크아웃
@@ -54,7 +54,6 @@ jobs:
                   playwright install-deps chromium
 
             - name: 🎰 로또 구매 실행
-              id: buy
               env:
                   LOTTO_ID: ${{ secrets.LOTTO_ID }}
                   LOTTO_PW: ${{ secrets.LOTTO_PW }}
@@ -63,6 +62,14 @@ jobs:
                   KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
               run: |
                   cd src && python lotto_buyer.py
+
+            - name: 💾 구매 번호 커밋 & 푸시
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add data/purchased.json
+                  git diff --staged --quiet || git commit -m "🎰 구매 번호 저장 $(date +'%Y-%m-%d')"
+                  git push
 
     # ════════════════════════════════════════
     # JOB 2: 당첨 확인 (토요일 자동 or 수동)
@@ -97,6 +104,6 @@ jobs:
               env:
                   KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
                   KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
-                  PURCHASED_NUMBERS: ${{ needs.buy-lotto.outputs.purchased_numbers || inputs.numbers }}
+                  PURCHASED_NUMBERS: ${{ inputs.numbers }}
               run: |
                   cd src && python check_number.py
