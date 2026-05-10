@@ -45,7 +45,7 @@ jobs:
 
       - name: 📦 의존성 설치
         run: |
-          pip install playwright httpx
+          pip install playwright httpx python-dotenv
           playwright install chromium
           playwright install-deps chromium
 

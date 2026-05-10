@@ -41,7 +41,22 @@ async def get_ai_numbers(count: int) -> list[list[int]]:
             },
         )
         data = resp.json()
-        result = json.loads(data["candidates"][0]["content"]["parts"][0]["text"])
+
+        # API 오류 응답 처리
+        if "error" in data:
+            err = data["error"]
+            print(f"⚠️  Gemini API 오류 (code={err.get('code')}) → {err.get('message')}")
+            print("   랜덤 번호로 대체합니다.")
+            return [sorted(random.sample(range(1, 46), 6)) for _ in range(count)]
+
+        candidates = data.get("candidates", [])
+        if not candidates:
+            # Safety block 등으로 candidates가 빈 경우
+            print(f"⚠️  Gemini 응답 없음 (promptFeedback={data.get('promptFeedback')}) → 랜덤 대체")
+            return [sorted(random.sample(range(1, 46), 6)) for _ in range(count)]
+
+        text = candidates[0]["content"]["parts"][0]["text"]
+        result = json.loads(text)
         numbers = [sorted(s) for s in result["numbers"]]
         print(f"🤖 Gemini 추천 번호 {count}세트:")
         for i, nums in enumerate(numbers):
