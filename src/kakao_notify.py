@@ -92,6 +92,21 @@ def notify_purchase(numbers: list[list[int]]):
     send_message("\n".join(lines))
 
 
+def notify_pension_purchase(tickets: list[dict[str, int | str]]):
+    """연금복권 구매 완료 알림"""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines = [
+        "💸 연금복권 구매 완료!",
+        f"📅 {now}",
+        f"🎟️ 총 {len(tickets)}장",
+        "--------------------",
+        "🍀 이번 주도 대박 기원!",
+    ]
+    for i, ticket in enumerate(tickets):
+        lines.append(f"{i+1}게임: {ticket['group']}조 {ticket['number']}")
+    send_message("\n".join(lines))
+
+
 def notify_result(
     purchased: list[list[int]],
     winning: list[int],
@@ -141,6 +156,71 @@ def notify_result(
         f"🎰 제{draw_no}회 당첨 결과",
         f"당첨번호: {winning_str}",
         f"보너스:   {bonus:02d}",
+        "--------------------",
+        header,
+        "--------------------",
+    ] + results + [
+        "--------------------",
+        "👉 dhlottery.co.kr",
+    ]
+    send_message("\n".join(lines))
+
+
+def notify_pension_result(
+    tickets: list[dict[str, int | str]],
+    winning_group: int,
+    winning_number: str,
+    bonus_number: str,
+    draw_no: int | None = None,
+):
+    """연금복권 당첨 결과 알림"""
+    rank_labels = {
+        "1": "🥇 1등",
+        "2": "🥈 2등",
+        "bonus": "🎁 보너스",
+        "3": "3등",
+        "4": "4등",
+        "5": "5등",
+        "6": "6등",
+        "7": "7등",
+        "0": "😢 낙첨",
+    }
+
+    def calc_rank(ticket: dict[str, int | str]) -> str:
+        group = int(ticket["group"])
+        number = str(ticket["number"])
+
+        if group == winning_group and number == winning_number:
+            return "1"
+        if number == bonus_number:
+            return "bonus"
+        if number == winning_number:
+            return "2"
+
+        match_count = 0
+        for ticket_digit, winning_digit in zip(reversed(number), reversed(winning_number)):
+            if ticket_digit != winning_digit:
+                break
+            match_count += 1
+
+        suffix_ranks = {5: "3", 4: "4", 3: "5", 2: "6", 1: "7"}
+        return suffix_ranks.get(match_count, "0")
+
+    results = []
+    has_win = False
+
+    for i, ticket in enumerate(tickets):
+        rank = calc_rank(ticket)
+        if rank != "0":
+            has_win = True
+        results.append(f"{i+1}게임 {rank_labels[rank]}\n   {ticket['group']}조 {ticket['number']}")
+
+    title = f"💸 연금복권 제{draw_no}회 결과" if draw_no else "💸 연금복권 당첨 결과"
+    header = "🎊 당첨됐어요!!!" if has_win else "😢 이번 주는 아쉽네요"
+    lines = [
+        title,
+        f"1등: {winning_group}조 {winning_number}",
+        f"보너스: {bonus_number}",
         "--------------------",
         header,
         "--------------------",

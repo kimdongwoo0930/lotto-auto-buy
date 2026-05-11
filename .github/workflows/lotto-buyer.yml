@@ -1,9 +1,9 @@
 name: 🎰 로또 자동 구매
 
 on:
-    # ── 매주 금요일 오후 9시 KST (UTC 12:00)
+    # ── 매주 월요일 오후 9시 KST (UTC 12:00)
     schedule:
-        - cron: '0 12 * * 5'
+        - cron: '0 12 * * 1'
         # ── 매주 토요일 밤 11시 KST (UTC 14:00) 당첨 확인
         - cron: '0 14 * * 6'
 
@@ -26,7 +26,7 @@ on:
 
 jobs:
     # ════════════════════════════════════════
-    # JOB 1: 로또 구매 (금요일 자동 or 수동)
+    # JOB 1: 로또 구매 (월요일 자동 or 수동)
     # ════════════════════════════════════════
     buy-lotto:
         name: 🎟️ 로또 구매
@@ -35,7 +35,7 @@ jobs:
         permissions:
             contents: write
         if: |
-            (github.event_name == 'schedule' && github.event.schedule == '0 12 * * 5') ||
+            (github.event_name == 'schedule' && github.event.schedule == '0 12 * * 1') ||
             (github.event_name == 'workflow_dispatch' && (inputs.mode == 'buy' || inputs.mode == 'buy+check'))
 
         steps:
@@ -60,6 +60,7 @@ jobs:
                   API_KEY: ${{ secrets.API_KEY }}
                   KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
                   KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+                  DRY_RUN: "false"
               run: |
                   cd src && python lotto_buyer.py
 
@@ -68,6 +69,7 @@ jobs:
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git add data/purchased.json
+                  if [ -f data/pension_purchased.json ]; then git add data/pension_purchased.json; fi
                   git diff --staged --quiet || git commit -m "🎰 구매 번호 저장 $(date +'%Y-%m-%d')"
                   git push
 
@@ -105,5 +107,6 @@ jobs:
                   KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
                   KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
                   PURCHASED_NUMBERS: ${{ inputs.numbers }}
+                  DRY_RUN: "false"
               run: |
                   cd src && python check_number.py

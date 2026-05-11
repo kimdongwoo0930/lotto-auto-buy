@@ -8,6 +8,8 @@
 import os
 import json
 import asyncio
+import random
+import re
 from datetime import datetime
 from playwright.async_api import async_playwright, Page
 
@@ -15,14 +17,16 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from number_selector import select_numbers
-from kakao_notify import notify_purchase, notify_error
+from kakao_notify import notify_purchase, notify_pension_purchase, notify_error
 
 # ── 환경변수 ────────────────────────────────────────────
 LOTTO_ID = os.environ["LOTTO_ID"]
 LOTTO_PW = os.environ["LOTTO_PW"]
 BASE_URL  = "https://www.dhlottery.co.kr"
 GAME_URL  = "https://ol.dhlottery.co.kr/olotto/game/game645.do"
+PENSION_URL = "https://el.dhlottery.co.kr/game_mobile/pension720/game.jsp"
 IS_CI     = os.environ.get("GITHUB_ACTIONS") == "true"
+DRY_RUN   = os.environ.get("DRY_RUN", "true").strip().lower() not in {"0", "false", "no", "n"}
 
 
 # ── 커스텀 예외 ────────────────────────────────────────
@@ -38,7 +42,10 @@ def load_settings() -> dict:
             line for line in f.read().splitlines()
             if not line.strip().startswith("//")
         )
-        return json.loads(content)
+        settings = json.loads(content)
+        settings.setdefault("total_tickets", 5)
+        settings.setdefault("pension_tickets", 0)
+        return settings
 
 
 # ── 환경 알림 팝업 닫기 ────────────────────────────────
@@ -109,6 +116,172 @@ async def _open_game_page(page: Page) -> None:
     await page.wait_for_selector('label[for="check645num1"]', timeout=15000)
 
 
+# ── 연금복권 구매 페이지 열기 ──────────────────────────
+async def _open_pension_page(page: Page) -> None:
+    await page.goto(PENSION_URL, timeout=60000)
+    await page.wait_for_load_state("domcontentloaded")
+    await _dismiss_alert(page)
+    await page.wait_for_selector("text=번호 선택하기", timeout=15000)
+
+
+# ── 연금복권 팝업의 클릭 가능한 옵션 선택 ────────────────
+async def _click_pension_option(page: Page, label: str) -> None:
+    selectors = [
+        lambda: page.get_by_role("link", name=label, exact=True),
+        lambda: page.locator(f'a:text-is("{label}")'),
+        lambda: page.locator(f'button:text-is("{label}")'),
+        lambda: page.locator(f'label:text-is("{label}")'),
+        lambda: page.locator(f'span:text-is("{label}")'),
+    ]
+
+    for build_locator in selectors:
+        options = build_locator()
+        count = await options.count()
+
+        for idx in range(count - 1, -1, -1):
+            option = options.nth(idx)
+            if not await option.is_visible():
+                continue
+
+            class_name = await option.get_attribute("class") or ""
+            if "numdgroup" in class_name:
+                continue
+
+            try:
+                await option.click()
+                return
+            except Exception:
+                continue
+
+    raise Exception(f"연금복권 옵션을 찾지 못했습니다: {label}")
+
+
+# ── 연금복권 자동선택 결과 읽기 ─────────────────────────
+async def _read_pension_selection(page: Page, expected_group: int) -> dict[str, int | str]:
+    cards = page.locator("div.win720_num")
+    card_count = await cards.count()
+    if card_count == 0:
+        raise Exception("연금복권 자동번호 결과 카드(win720_num)를 찾지 못했습니다.")
+
+    card = cards.nth(card_count - 1)
+    group_text = (await card.locator("span.group").inner_text()).strip()
+    group_digits = "".join(ch for ch in group_text if ch.isdigit())
+    group = int(group_digits) if group_digits else expected_group
+
+    nums = card.locator("ul.num_list span.num")
+    num_count = await nums.count()
+    digits: list[str] = []
+
+    for idx in range(num_count):
+        text = (await nums.nth(idx).inner_text()).strip()
+        if text.isdigit():
+            digits.append(text)
+
+    if len(digits) != 6:
+        raise Exception(f"연금복권 자동번호 6자리를 읽지 못했습니다. 선택값: {digits}")
+
+    number = "".join(digits)
+
+    if group != expected_group:
+        raise Exception(
+            f"연금복권 조 확인 실패: 기대값 {expected_group}조 / 실제값 {group}조"
+        )
+
+    if not re.fullmatch(r"\d{6}", number):
+        raise Exception(f"연금복권 번호 형식이 올바르지 않습니다: {number}")
+
+    return {"group": group, "number": number}
+
+
+# ── 연금복권 번호 선택 ─────────────────────────────────
+async def _select_pension_number(page: Page, group: int) -> dict[str, int | str]:
+    await page.get_by_text("번호 선택하기").click()
+    await page.wait_for_timeout(500)
+
+    await _click_pension_option(page, f"{group}조")
+    await page.wait_for_timeout(300)
+
+    await page.locator('a.btn_wht.xsmall[onclick="doAuto();"]').click()
+    await page.wait_for_timeout(300)
+
+    ticket = await _read_pension_selection(page, group)
+
+    await page.get_by_text("선택완료").click()
+    await page.wait_for_timeout(1000)
+    return ticket
+
+
+# ── 연금복권 번호 생성 ─────────────────────────────────
+def _generate_pension_tickets(count: int) -> list[dict[str, int | str]]:
+    tickets: list[dict[str, int | str]] = []
+    for _ in range(count):
+        group = random.randint(1, 5)
+        tickets.append({
+            "group": group,
+            "number": "",
+        })
+    return tickets
+
+
+# ── 연금복권 구매 ──────────────────────────────────────
+async def buy_pension_lotto(count: int, dry_run: bool = False) -> list[dict[str, int | str]]:
+    if count <= 0:
+        return []
+
+    async with async_playwright() as p:
+        launch_opts: dict = {
+            "headless": IS_CI,
+            "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+        }
+        if not IS_CI:
+            launch_opts["channel"] = "chrome"
+
+        browser = await p.chromium.launch(**launch_opts)
+        context = await browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 900},
+        )
+        page = await context.new_page()
+        page.set_default_timeout(20000)
+
+        try:
+            await _login(page)
+            await _open_pension_page(page)
+
+            tickets = _generate_pension_tickets(count)
+            print(f"\n💸 연금복권 {count}장 구매 중...")
+            for ticket_idx, ticket in enumerate(tickets):
+                print(f"   {ticket_idx + 1}장 선택: {ticket['group']}조 자동번호")
+                selected_ticket = await _select_pension_number(page, int(ticket["group"]))
+                ticket["group"] = selected_ticket["group"]
+                ticket["number"] = selected_ticket["number"]
+                print(f"      ↳ 선택 결과: {ticket['group']}조 {ticket['number']}")
+
+            if dry_run:
+                print("   🧪 DRY_RUN 활성화 → 구매 버튼은 누르지 않고 종료합니다.")
+                return tickets
+
+            await page.locator('a.btn_blue.large.full[onclick="doOrder();"]').click()
+            await page.wait_for_load_state("networkidle")
+            await page.wait_for_timeout(1500)
+
+            # 완료 화면이 열렸는지 확인한다.
+            try:
+                await page.wait_for_selector("text=구매완료", timeout=3000)
+                print(f"   ✅ 연금복권 {count}장 구매 완료!")
+            except Exception:
+                print(f"   ✅ 연금복권 {count}장 구매 요청 완료!")
+
+            return tickets
+
+        finally:
+            await browser.close()
+
+
 # ── 번호 선택 및 구매 (1배치: 최대 5게임) ───────────────
 async def _buy_batch(page: Page, batch: list[list[int]], batch_start: int) -> None:
     for game_idx, nums in enumerate(batch):
@@ -174,7 +347,7 @@ async def _parse_results(page: Page) -> list[list[int]]:
 
 
 # ── Playwright 자동화 ──────────────────────────────────
-async def buy_lotto(all_numbers: list[list[int]]) -> list[list[int]]:
+async def buy_lotto(all_numbers: list[list[int]], dry_run: bool = False) -> list[list[int]]:
     async with async_playwright() as p:
         launch_opts: dict = {
             "headless": IS_CI,
@@ -212,6 +385,13 @@ async def buy_lotto(all_numbers: list[list[int]]) -> list[list[int]]:
                 await _open_game_page(page)
                 await _buy_batch(page, batch, batch_start)
 
+                if dry_run:
+                    print("   🧪 DRY_RUN 활성화 → 구매 버튼은 누르지 않고 종료합니다.")
+                    batch_result = batch
+                    purchased.extend(batch_result)
+                    print(f"   ✅ {len(batch)}게임 선택 완료!")
+                    continue
+
                 # 결과 파싱 실패 시 입력 번호로 대체 (구매 확인까지 완료된 상태)
                 try:
                     batch_result = await _parse_results(page)
@@ -235,18 +415,43 @@ async def buy_lotto(all_numbers: list[list[int]]) -> list[list[int]]:
 
 
 # ── 구매 번호 파일 저장 ────────────────────────────────
-def save_purchased_json(numbers: list[list[int]]) -> None:
+def save_purchased_json(numbers: list[list[int]], is_test: bool = False) -> None:
     data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
     os.makedirs(data_dir, exist_ok=True)
-    json_path = os.path.join(data_dir, "purchased.json")
+    filename = "purchased.test.json" if is_test else "purchased.json"
+    json_path = os.path.join(data_dir, filename)
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(
-            {"date": datetime.now().strftime("%Y-%m-%d"), "numbers": numbers},
+            {
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "test": is_test,
+                "numbers": numbers,
+            },
             f,
             ensure_ascii=False,
             indent=2,
         )
     print(f"💾 구매 번호 저장: {json_path}")
+
+
+# ── 연금복권 구매 수 저장 ───────────────────────────────
+def save_pension_purchased_json(tickets: list[dict[str, int | str]], is_test: bool = False) -> None:
+    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    os.makedirs(data_dir, exist_ok=True)
+    filename = "pension_purchased.test.json" if is_test else "pension_purchased.json"
+    json_path = os.path.join(data_dir, filename)
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "test": is_test,
+                "tickets": tickets,
+            },
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+    print(f"💾 연금복권 구매 수 저장: {json_path}")
 
 
 # ── GitHub Actions Summary 기록 ────────────────────────
@@ -270,16 +475,59 @@ def write_summary(numbers: list[list[int]]) -> None:
 async def main() -> None:
     settings = load_settings()
     total = settings.get("total_tickets", 5)
+    pension_total = settings.get("pension_tickets", 0)
+    needed = (total + pension_total) * 1000
 
-    print(f"🚀 로또 자동 구매 시작 | 총 {total}장")
+    print(f"🚀 로또 자동 구매 시작 | 로또 {total}장 / 연금복권 {pension_total}장")
     print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"🖥  headless={'True (CI)' if IS_CI else 'False (로컬)'}")
+    if DRY_RUN:
+        print("🧪 DRY_RUN 활성화: 구매 버튼 클릭 없이 선택 흐름만 테스트합니다.")
 
-    numbers   = await select_numbers(total)
-    purchased = await buy_lotto(numbers)
-    save_purchased_json(purchased)
-    write_summary(purchased)
-    notify_purchase(purchased)
+    if total + pension_total <= 0:
+        print("⚠️  구매할 장수가 0장이라 실행을 종료합니다.")
+        return
+
+    # 로또와 연금복권 구매 금액을 합쳐서 예치금을 먼저 확인한다.
+    if needed > 0:
+        async with async_playwright() as p:
+            launch_opts: dict = {
+                "headless": IS_CI,
+                "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+            }
+            if not IS_CI:
+                launch_opts["channel"] = "chrome"
+            browser = await p.chromium.launch(**launch_opts)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 900},
+            )
+            page = await context.new_page()
+            page.set_default_timeout(20000)
+            try:
+                await _login(page)
+                await _check_balance(page, needed)
+            finally:
+                await browser.close()
+
+    purchased = []
+    if total > 0:
+        numbers = await select_numbers(total)
+        purchased = await buy_lotto(numbers, dry_run=DRY_RUN)
+        save_purchased_json(purchased, is_test=DRY_RUN)
+        if not DRY_RUN:
+            write_summary(purchased)
+            notify_purchase(purchased)
+
+    if pension_total > 0:
+        pension_purchased = await buy_pension_lotto(pension_total, dry_run=DRY_RUN)
+        save_pension_purchased_json(pension_purchased, is_test=DRY_RUN)
+        if not DRY_RUN:
+            notify_pension_purchase(pension_purchased)
 
 
 if __name__ == "__main__":
