@@ -1,13 +1,4 @@
 {
-    "date": "2026-05-11",
-    "tickets": [
-        {
-            "group": 1,
-            "number": "655670"
-        },
-        {
-            "group": 2,
-            "number": "005195"
-        }
-    ]
+    "date": "",
+    "tickets": []
 }
