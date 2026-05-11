@@ -126,8 +126,7 @@ async def get_pension_winning_numbers() -> dict:
         page = await context.new_page()
 
         try:
-            await page.goto(PENSION_INTRO_URL, timeout=30000)
-            await page.wait_for_load_state("domcontentloaded")
+            await page.goto(PENSION_INTRO_URL, wait_until="domcontentloaded", timeout=60000)
 
             ready = False
             last_body_text = ""
