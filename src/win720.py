@@ -166,15 +166,24 @@ class Win720:
         except ValueError:
             raise ValueError(f"복호화 결과 파싱 실패: {repr(decrypted)[:500]}...")
 
+        print(f"🔍 makeAutoNumbers 복호화 결과: {decrypted[:200]}")
+        print(f"🔍 selLotNo(extracted_num): {repr(extracted_num)}")
+
         if not extracted_num:
+            print(f"❌ selLotNo가 비어있음 → 조기 반환. 전체 복호화 결과: {decrypted}")
             return json.loads(decrypted)
 
         groups = sorted(random.sample(range(1, 6), count))
+        print(f"🎲 선택된 조: {groups}")
 
         orderNo, orderDate = self._doOrderRequest(auth_ctrl, win720_round, extracted_num)
-        body = json.loads(self._doConnPro(
+        print(f"🔍 orderNo={orderNo}, orderDate={orderDate}")
+
+        conn_result = self._doConnPro(
             auth_ctrl, win720_round, extracted_num, username, orderNo, orderDate, groups
-        ))
+        )
+        print(f"🔍 connPro 결과: {conn_result[:300]}")
+        body = json.loads(conn_result)
 
         self._show_result(body)
         body['round'] = win720_round
