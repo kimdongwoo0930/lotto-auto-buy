@@ -13,9 +13,10 @@ import time
 
 import requests
 from bs4 import BeautifulSoup as BS
-from Crypto.Cipher import AES
+from Crypto.Cipher import AES, PKCS1_v1_5
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
+from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 
 logger = logging.getLogger(__name__)
@@ -49,79 +50,110 @@ class _HttpClient:
 
 
 class AuthController:
-    """동행복권 로그인 및 세션 관리"""
+    """동행복권 로그인 및 세션 관리 (dhapi 방식 RSA 암호화 로그인)"""
 
-    LOGIN_URL = "https://www.dhlottery.co.kr/userSsl.do?method=login"
+    BASE_URL = "https://www.dhlottery.co.kr"
+    RSA_KEY_URL = "https://www.dhlottery.co.kr/login/selectRsaModulus.do"
+    LOGIN_URL = "https://www.dhlottery.co.kr/login/securityLoginCheck.do"
 
     def __init__(self):
         self.http_client = _HttpClient.get_instance()
         self._jsessionid = ""
 
+    def _rsa_encrypt(self, plain_text: str, modulus_hex: str, exponent_hex: str) -> str:
+        n = int(modulus_hex, 16)
+        e = int(exponent_hex, 16)
+        key = RSA.construct((n, e))
+        cipher = PKCS1_v1_5.new(key)
+        return cipher.encrypt(plain_text.encode("utf-8")).hex()
+
     def login(self, username: str, password: str) -> None:
         # 1. 메인 사이트 초기 접속
-        self.http_client.get("https://www.dhlottery.co.kr/")
+        self.http_client.get(f"{self.BASE_URL}/")
 
-        # 2. www 로그인
+        # 2. 로그인 페이지 방문
+        self.http_client.get(f"{self.BASE_URL}/login")
+
+        # 3. RSA 공개키 요청
+        rsa_resp = self.http_client.get(
+            self.RSA_KEY_URL,
+            headers={
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"{self.BASE_URL}/login",
+            },
+        )
+        rsa_resp.raise_for_status()
+        rsa_data = rsa_resp.json()
+        if "data" not in rsa_data:
+            raise Exception(f"RSA 키 요청 실패: {rsa_data}")
+        rsa_modulus = rsa_data["data"]["rsaModulus"]
+        rsa_exponent = rsa_data["data"]["publicExponent"]
+
+        # 4. RSA 암호화 로그인
+        encrypted_id = self._rsa_encrypt(username, rsa_modulus, rsa_exponent)
+        encrypted_pw = self._rsa_encrypt(password, rsa_modulus, rsa_exponent)
+
         resp = self.http_client.post(
             self.LOGIN_URL,
-            data={
-                "returnUrl": "https://www.dhlottery.co.kr/common.do?method=main",
-                "j_username": username,
-                "j_password": password,
-                "checkSave": "Y",
-                "newsEventYn": "",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Origin": self.BASE_URL,
+                "Referer": f"{self.BASE_URL}/login",
             },
+            data={
+                "userId": encrypted_id,
+                "userPswdEncn": encrypted_pw,
+                "inpUserId": username,
+            },
+            allow_redirects=True,
         )
         resp.raise_for_status()
 
-        www_sid = self.http_client.session.cookies.get("DHJSESSIONID", "")
-        print(f"🔍 www DHJSESSIONID: {www_sid[:16] if www_sid else 'NONE'}...")
+        if "loginSuccess" not in resp.url:
+            raise Exception(f"RSA 로그인 실패: 최종 URL={resp.url}")
+        print(f"✅ www RSA 로그인 성공")
 
-        # 3. www → el SSO 연결 (실제 유저가 연금복권 버튼 클릭하는 경로)
-        sso_resp = self.http_client.get(
-            "https://www.dhlottery.co.kr/gameInfo.do",
-            params={"method": "newUserMemberLogin", "returnUrl": "pension720/game.jsp"},
-            allow_redirects=True,
-        )
-        print(f"🔍 SSO 최종 URL: {sso_resp.url}")
+        # 5. 메인 페이지 방문 (세션 안정화)
+        self.http_client.get(f"{self.BASE_URL}/main")
 
-        # 4. 전체 쿠키 덤프 (도메인별)
-        cookie_dump = {}
-        for domain, paths in self.http_client.session.cookies._cookies.items():
-            for path, cookies in paths.items():
-                for name, cookie in cookies.items():
-                    cookie_dump[f"{domain}{path}:{name}"] = cookie.value[:12] + "..."
-        print(f"🔍 전체 쿠키 덤프: {cookie_dump}")
+        # 6. 전체 쿠키 확인
+        cookie_dump = {
+            f"{d}{p}:{n}": c.value[:12] + "..."
+            for d, paths in self.http_client.session.cookies._cookies.items()
+            for p, cookies in paths.items()
+            for n, c in cookies.items()
+        }
+        print(f"🔍 로그인 후 쿠키: {cookie_dump}")
 
-        # el 도메인 전용 DHJSESSIONID 우선 사용
-        el_sid = self.http_client.session.cookies.get(
-            "DHJSESSIONID", domain="el.dhlottery.co.kr"
-        )
-        if not el_sid:
-            el_sid = self.http_client.session.cookies.get("DHJSESSIONID", "")
-
-        print(f"🔍 el DHJSESSIONID: {el_sid[:16] if el_sid else 'NONE'}...")
-        print(f"🔍 www와 동일: {el_sid == www_sid}")
-
-        # 5. el 게임 페이지 직접 방문 (세션 초기화)
-        self.http_client.get(
+        # 7. el.dhlottery.co.kr 게임 페이지 직접 방문 (el 세션 초기화)
+        el_resp = self.http_client.get(
             "https://el.dhlottery.co.kr/game/pension720/game.jsp",
-            headers={"Referer": "https://www.dhlottery.co.kr/"},
+            headers={"Referer": f"{self.BASE_URL}/"},
             allow_redirects=True,
         )
-        after_game_sid = self.http_client.session.cookies.get(
-            "DHJSESSIONID", domain="el.dhlottery.co.kr"
+        print(f"🔍 el 게임페이지 최종 URL: {el_resp.url}")
+
+        # 8. el 도메인 쿠키 확인
+        cookie_dump2 = {
+            f"{d}{p}:{n}": c.value[:12] + "..."
+            for d, paths in self.http_client.session.cookies._cookies.items()
+            for p, cookies in paths.items()
+            for n, c in cookies.items()
+        }
+        print(f"🔍 el 방문 후 쿠키: {cookie_dump2}")
+
+        # el 도메인 DHJSESSIONID 우선, 없으면 공유 도메인 사용
+        sid = (
+            self.http_client.session.cookies.get("DHJSESSIONID", domain="el.dhlottery.co.kr")
+            or self.http_client.session.cookies.get("DHJSESSIONID", "")
         )
-        if not after_game_sid:
-            after_game_sid = self.http_client.session.cookies.get("DHJSESSIONID", "")
-        print(f"🔍 게임페이지 방문 후 el DHJSESSIONID: {after_game_sid[:16] if after_game_sid else 'NONE'}...")
 
-        self._jsessionid = after_game_sid or el_sid or www_sid
-
-        if not self._jsessionid:
+        if not sid:
             all_cookies = [c.name for c in self.http_client.session.cookies]
             raise Exception(f"연금복권 로그인 실패: DHJSESSIONID 없음. 쿠키: {all_cookies}")
 
+        self._jsessionid = sid
         print(f"✅ 연금복권 로그인 성공 (keyCode: {self._jsessionid[:16]}...)")
 
     def get_current_session_id(self) -> str:
