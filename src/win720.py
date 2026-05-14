@@ -58,9 +58,10 @@ class AuthController:
         self._jsessionid = ""
 
     def login(self, username: str, password: str) -> None:
-        # 1. 메인 사이트 로그인
+        # 1. 메인 사이트 초기 접속
         self.http_client.get("https://www.dhlottery.co.kr/")
 
+        # 2. www 로그인
         resp = self.http_client.post(
             self.LOGIN_URL,
             data={
@@ -73,23 +74,26 @@ class AuthController:
         )
         resp.raise_for_status()
 
-        # 2. el.dhlottery.co.kr 세션 초기화 (연금복권 서브도메인 별도 세션)
+        www_cookies = {c.name: (c.value, c.domain) for c in self.http_client.session.cookies}
+        print(f"🔍 www 로그인 후 쿠키: {list(www_cookies.keys())}")
+
+        # 3. www 세션 ID 획득 (암호화 키로 사용)
+        self._jsessionid = (
+            self.http_client.session.cookies.get("JSESSIONID", domain="www.dhlottery.co.kr")
+            or self.http_client.session.cookies.get("JSESSIONID", "")
+        )
+        print(f"🔍 www JSESSIONID: {self._jsessionid[:8] if self._jsessionid else 'None'}...")
+
+        # 4. el.dhlottery.co.kr 접속 (공유 도메인 쿠키로 인증 전달)
         self.http_client.get("https://el.dhlottery.co.kr/game/pension720/game.jsp")
 
-        # 3. el.dhlottery.co.kr의 세션 ID 획득 (DHJSESSIONID 또는 JSESSIONID)
-        cookies = self.http_client.session.cookies
-        self._jsessionid = (
-            cookies.get("DHJSESSIONID", domain="el.dhlottery.co.kr")
-            or cookies.get("JSESSIONID", domain="el.dhlottery.co.kr")
-            or cookies.get("DHJSESSIONID", "")
-            or cookies.get("JSESSIONID", "")
-        )
+        el_cookies = {c.name: c.domain for c in self.http_client.session.cookies}
+        print(f"🔍 el 접속 후 전체 쿠키: {el_cookies}")
 
         if not self._jsessionid:
-            all_cookies = {c.name: c.value for c in cookies}
             raise Exception(
-                f"연금복권 로그인 실패: 세션 ID를 가져올 수 없습니다. "
-                f"수신된 쿠키: {list(all_cookies.keys())}"
+                f"연금복권 로그인 실패: www JSESSIONID 없음. "
+                f"쿠키 목록: {list(www_cookies.keys())}"
             )
 
         print(f"✅ 연금복권 로그인 성공")
