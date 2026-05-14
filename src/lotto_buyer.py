@@ -3,7 +3,6 @@
 """
 
 import os
-import sys
 import json
 import asyncio
 import re
@@ -116,19 +115,9 @@ def buy_lotto(numbers: list[list[int]], dry_run: bool = False) -> list[list[int]
 
 
 def _get_auth_controller():
-    """dhapi 내부 auth 모듈에서 AuthController를 생성하고 로그인"""
-    import importlib.util
+    """win720.AuthController로 동행복권 로그인"""
     import configparser
-
-    spec = importlib.util.find_spec("dhapi")
-    if not spec or not spec.submodule_search_locations:
-        raise ImportError("dhapi 패키지를 찾을 수 없습니다")
-
-    dhapi_path = list(spec.submodule_search_locations)[0]
-    if dhapi_path not in sys.path:
-        sys.path.insert(0, dhapi_path)
-
-    import auth  # noqa: PLC0415  (dhapi 내부 모듈)
+    from win720 import AuthController  # noqa: PLC0415
 
     # 환경변수 우선, 없으면 ~/.dhapi/credentials 파일
     lotto_id = os.environ.get("LOTTO_ID", "")
@@ -144,7 +133,7 @@ def _get_auth_controller():
     if not (lotto_id and lotto_pw):
         raise ValueError("LOTTO_ID / LOTTO_PW를 환경변수 또는 ~/.dhapi/credentials에서 찾을 수 없습니다")
 
-    auth_ctrl = auth.AuthController()
+    auth_ctrl = AuthController()
     auth_ctrl.login(lotto_id, lotto_pw)
     return auth_ctrl, lotto_id
 

@@ -1,83 +1,132 @@
 """
-연금복권720+ 자동 구매 모듈
-원본: https://github.com/roeniss/dhlottery-api (기여자 코드 기반)
-dhapi 패키지의 내부 모듈(auth, HttpClient, common)을 경로 주입으로 사용
+연금복권720+ 자동 구매 모듈 (자체 완결형)
+dhapi 내부 모듈 의존 없이 requests.Session으로 직접 구현
 """
-
-import importlib.util
-import sys
-
-# dhapi 패키지 내부 모듈(auth, HttpClient, common)을 직접 import하기 위해 경로 주입
-_spec = importlib.util.find_spec("dhapi")
-if _spec and _spec.submodule_search_locations:
-    _dhapi_path = list(_spec.submodule_search_locations)[0]
-    if _dhapi_path not in sys.path:
-        sys.path.insert(0, _dhapi_path)
 
 import json
 import random
 import datetime
 import base64
-import requests
+import re
+import logging
+import time
 
+import requests
 from bs4 import BeautifulSoup as BS
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
 from Crypto.Random import get_random_bytes
 
-from HttpClient import HttpClientSingleton
-import auth
-import re
-import logging
-import time
-
 logger = logging.getLogger(__name__)
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+
+
+class _HttpClient:
+    """requests.Session 싱글톤"""
+    _instance = None
+
+    def __init__(self):
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": USER_AGENT})
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def get(self, url, **kwargs):
+        return self.session.get(url, **kwargs)
+
+    def post(self, url, **kwargs):
+        return self.session.post(url, **kwargs)
+
+
+class AuthController:
+    """동행복권 로그인 및 세션 관리"""
+
+    LOGIN_URL = "https://www.dhlottery.co.kr/userSsl.do?method=login"
+
+    def __init__(self):
+        self.http_client = _HttpClient.get_instance()
+        self._jsessionid = ""
+
+    def login(self, username: str, password: str) -> None:
+        self.http_client.get("https://www.dhlottery.co.kr/")
+
+        resp = self.http_client.post(
+            self.LOGIN_URL,
+            data={
+                "returnUrl": "https://www.dhlottery.co.kr/common.do?method=main",
+                "j_username": username,
+                "j_password": password,
+                "checkSave": "Y",
+                "newsEventYn": "",
+            },
+        )
+        resp.raise_for_status()
+
+        self._jsessionid = self.http_client.session.cookies.get("JSESSIONID", "")
+        if not self._jsessionid:
+            raise Exception("연금복권 로그인 실패: JSESSIONID를 가져올 수 없습니다")
+
+        print(f"✅ 연금복권 로그인 성공")
+
+    def get_current_session_id(self) -> str:
+        return self._jsessionid
+
+    def add_auth_cred_to_headers(self, headers: dict) -> dict:
+        # Session이 쿠키를 자동으로 처리하므로 헤더만 복사
+        return dict(headers)
 
 
 class Win720:
 
-    keySize = 128
-    iterationCount = 1000
     BlockSize = 16
+    iterationCount = 1000
     keyCode = ""
 
     _pad = lambda self, s: s + (self.BlockSize - len(s) % self.BlockSize) * chr(self.BlockSize - len(s) % self.BlockSize)
     _unpad = lambda self, s: s[:-ord(s[len(s)-1:])]
 
     _REQ_HEADERS = {
-        "User-Agent": auth.USER_AGENT,
+        "User-Agent": USER_AGENT,
         "Connection": "keep-alive",
         "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
         "sec-ch-ua-mobile": "?0",
         "Origin": "https://el.dhlottery.co.kr",
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
         "Referer": "https://el.dhlottery.co.kr/game/pension720/game.jsp",
         "Sec-Fetch-Site": "same-origin",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Dest": "empty",
         "sec-ch-ua-platform": '"Windows"',
+        "Accept": "*/*",
         "Accept-Encoding": "gzip, deflate, br",
         "Accept-Language": "ko,ko-KR;q=0.9,en-US;q=0.8,en;q=0.7",
-        "X-Requested-With": "XMLHttpRequest"
+        "X-Requested-With": "XMLHttpRequest",
     }
 
     def __init__(self):
-        self.http_client = HttpClientSingleton.get_instance()
+        self.http_client = _HttpClient.get_instance()
 
     def buy_Win720(
         self,
-        auth_ctrl: auth.AuthController,
+        auth_ctrl: AuthController,
         username: str,
         count: int = 5,
     ) -> dict:
         """
         연금복권 구매
-        count: 구매할 장수 (1~5). 조 1번부터 count번까지 동일 번호로 구매.
-        반환값에 purchased_number(6자리 문자열)와 purchased_tickets 포함.
+        count: 구매할 장수 (1~5). 1~5조 중 랜덤 count개 선택, 동일 번호로 구매.
+        반환값에 purchased_number(6자리)와 purchased_tickets 포함.
         """
-        assert isinstance(auth_ctrl, auth.AuthController)
         count = max(1, min(5, count))
 
         jsessionid = auth_ctrl.get_current_session_id()
@@ -119,8 +168,7 @@ class Win720:
         ]
         return body
 
-    def _generate_req_headers(self, auth_ctrl: auth.AuthController) -> dict:
-        assert isinstance(auth_ctrl, auth.AuthController)
+    def _generate_req_headers(self, auth_ctrl: AuthController) -> dict:
         return auth_ctrl.add_auth_cred_to_headers(self._REQ_HEADERS)
 
     def _get_round(self) -> str:
@@ -143,7 +191,7 @@ class Win720:
             weeks = (next_thursday - base_date).days // 7
             return str(base_round + weeks - 1)
 
-    def _makeAutoNumbers(self, auth_ctrl: auth.AuthController, win720_round: str) -> str:
+    def _makeAutoNumbers(self, auth_ctrl: AuthController, win720_round: str) -> str:
         payload = "ROUND={}&round={}&LT_EPSD={}&SEL_NO=&BUY_CNT=&AUTO_SEL_SET=SA&SEL_CLASS=&BUY_TYPE=A&ACCS_TYPE=01".format(
             win720_round, win720_round, win720_round
         )
@@ -166,7 +214,7 @@ class Win720:
                 else:
                     raise
 
-    def _doOrderRequest(self, auth_ctrl: auth.AuthController, win720_round: str, extracted_num: str) -> tuple[str, str]:
+    def _doOrderRequest(self, auth_ctrl: AuthController, win720_round: str, extracted_num: str) -> tuple[str, str]:
         payload = "ROUND={}&round={}&LT_EPSD={}&AUTO_SEL_SET=SA&SEL_CLASS=&SEL_NO={}&BUY_TYPE=M&BUY_CNT=5".format(
             win720_round, win720_round, win720_round, extracted_num
         )
@@ -197,7 +245,7 @@ class Win720:
 
     def _doConnPro(
         self,
-        auth_ctrl: auth.AuthController,
+        auth_ctrl: AuthController,
         win720_round: str,
         extracted_num: str,
         username: str,
@@ -281,7 +329,6 @@ class Win720:
                 return f'{{"resultMsg": "복호화 실패 (Raw: {decrypted_bytes.hex()[:20]}...)"}}'
 
     def _show_result(self, body: dict) -> None:
-        assert isinstance(body, dict)
         if body.get("loginYn") != "Y":
             return
         result = body.get("result", {})
