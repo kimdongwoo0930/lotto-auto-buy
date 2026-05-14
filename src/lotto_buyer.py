@@ -45,7 +45,10 @@ def _run_dhapi(*args: str) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     output = (result.stdout + result.stderr).strip()
     if result.returncode != 0:
-        raise Exception(f"dhapi 실패 (code={result.returncode}): {output}")
+        # "사유: ..." 부분만 추출, 없으면 마지막 줄
+        reason_match = re.search(r"사유:\s*(.+?)[\)\.]", output)
+        reason = reason_match.group(1).strip() if reason_match else output.splitlines()[-1]
+        raise Exception(reason)
     return output
 
 
@@ -152,7 +155,7 @@ def save_purchased_json(numbers: list[list[int]], is_test: bool = False) -> None
     json_path = os.path.join(DATA_DIR, filename)
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(
-            {"date": datetime.now(KST).strftime("%Y-%m-%d"), "test": is_test, "numbers": numbers},
+            {"date": datetime.now(KST).strftime("%Y-%m-%d"), "numbers": numbers},
             f, ensure_ascii=False, indent=2,
         )
     print(f"💾 구매 번호 저장: {json_path}")
@@ -164,7 +167,7 @@ def save_pension_purchased_json(tickets: list[dict], is_test: bool = False) -> N
     json_path = os.path.join(DATA_DIR, filename)
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(
-            {"date": datetime.now(KST).strftime("%Y-%m-%d"), "test": is_test, "tickets": tickets},
+            {"date": datetime.now(KST).strftime("%Y-%m-%d"), "tickets": tickets},
             f, ensure_ascii=False, indent=2,
         )
     print(f"💾 연금복권 구매 저장: {json_path}")
@@ -232,14 +235,10 @@ async def main() -> None:
 
     # ── 연금복권720+ 구매
     if pension > 0:
-        try:
-            pension_purchased = buy_pension_lotto(pension, dry_run=DRY_RUN)
-            save_pension_purchased_json(pension_purchased, is_test=DRY_RUN)
-            if not DRY_RUN:
-                notify_pension_purchase(pension_purchased)
-        except Exception as e:
-            print(f"⚠️  연금복권 구매 실패: {e}")
-            notify_error(f"💸 연금복권 구매 실패\n\n{e}")
+        pension_purchased = buy_pension_lotto(pension, dry_run=DRY_RUN)
+        save_pension_purchased_json(pension_purchased, is_test=DRY_RUN)
+        if not DRY_RUN:
+            notify_pension_purchase(pension_purchased)
 
     print(f"\n🎉 완료! (로또 {total}장 / 연금복권 {pension}장)")
 
