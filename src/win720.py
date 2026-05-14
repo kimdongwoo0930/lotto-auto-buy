@@ -74,17 +74,55 @@ class AuthController:
         )
         resp.raise_for_status()
 
-        # 3. DHJSESSIONID 획득 (암호화 키 + 공유 도메인 인증 쿠키)
-        #    domain='.dhlottery.co.kr' 이므로 el.dhlottery.co.kr 요청에도 자동 전송
-        self._jsessionid = self.http_client.session.cookies.get("DHJSESSIONID", "")
+        www_sid = self.http_client.session.cookies.get("DHJSESSIONID", "")
+        print(f"🔍 www DHJSESSIONID: {www_sid[:16] if www_sid else 'NONE'}...")
+
+        # 3. www → el SSO 연결 (실제 유저가 연금복권 버튼 클릭하는 경로)
+        sso_resp = self.http_client.get(
+            "https://www.dhlottery.co.kr/gameInfo.do",
+            params={"method": "newUserMemberLogin", "returnUrl": "pension720/game.jsp"},
+            allow_redirects=True,
+        )
+        print(f"🔍 SSO 최종 URL: {sso_resp.url}")
+
+        # 4. 전체 쿠키 덤프 (도메인별)
+        cookie_dump = {}
+        for domain, paths in self.http_client.session.cookies._cookies.items():
+            for path, cookies in paths.items():
+                for name, cookie in cookies.items():
+                    cookie_dump[f"{domain}{path}:{name}"] = cookie.value[:12] + "..."
+        print(f"🔍 전체 쿠키 덤프: {cookie_dump}")
+
+        # el 도메인 전용 DHJSESSIONID 우선 사용
+        el_sid = self.http_client.session.cookies.get(
+            "DHJSESSIONID", domain="el.dhlottery.co.kr"
+        )
+        if not el_sid:
+            el_sid = self.http_client.session.cookies.get("DHJSESSIONID", "")
+
+        print(f"🔍 el DHJSESSIONID: {el_sid[:16] if el_sid else 'NONE'}...")
+        print(f"🔍 www와 동일: {el_sid == www_sid}")
+
+        # 5. el 게임 페이지 직접 방문 (세션 초기화)
+        self.http_client.get(
+            "https://el.dhlottery.co.kr/game/pension720/game.jsp",
+            headers={"Referer": "https://www.dhlottery.co.kr/"},
+            allow_redirects=True,
+        )
+        after_game_sid = self.http_client.session.cookies.get(
+            "DHJSESSIONID", domain="el.dhlottery.co.kr"
+        )
+        if not after_game_sid:
+            after_game_sid = self.http_client.session.cookies.get("DHJSESSIONID", "")
+        print(f"🔍 게임페이지 방문 후 el DHJSESSIONID: {after_game_sid[:16] if after_game_sid else 'NONE'}...")
+
+        self._jsessionid = after_game_sid or el_sid or www_sid
 
         if not self._jsessionid:
             all_cookies = [c.name for c in self.http_client.session.cookies]
-            raise Exception(
-                f"연금복권 로그인 실패: DHJSESSIONID 없음. 쿠키 목록: {all_cookies}"
-            )
+            raise Exception(f"연금복권 로그인 실패: DHJSESSIONID 없음. 쿠키: {all_cookies}")
 
-        print(f"✅ 연금복권 로그인 성공")
+        print(f"✅ 연금복권 로그인 성공 (keyCode: {self._jsessionid[:16]}...)")
 
     def get_current_session_id(self) -> str:
         return self._jsessionid
