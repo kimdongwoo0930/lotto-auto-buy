@@ -111,4 +111,6 @@ jobs:
           KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
           PURCHASED_NUMBERS: ${{ inputs.numbers }}
           DRY_RUN: "false"
+          CHECK_LOTTO645: "true"
+          CHECK_PENSION: "false"
         run: cd src && python check_number.py

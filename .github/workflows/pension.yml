@@ -105,4 +105,6 @@ jobs:
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
           DRY_RUN: "false"
+          CHECK_LOTTO645: "false"
+          CHECK_PENSION: "true"
         run: cd src && python check_number.py

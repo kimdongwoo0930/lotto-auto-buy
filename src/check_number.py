@@ -17,6 +17,8 @@ from kakao_notify import notify_result, notify_pension_result, notify_error
 
 IS_CI = os.environ.get("GITHUB_ACTIONS") == "true"
 DRY_RUN = os.environ.get("DRY_RUN", "true").strip().lower() not in {"0", "false", "no", "n"}
+CHECK_LOTTO645 = os.environ.get("CHECK_LOTTO645", "true").strip().lower() != "false"
+CHECK_PENSION  = os.environ.get("CHECK_PENSION",  "true").strip().lower() != "false"
 LOTTO_INTRO_URL = "https://www.dhlottery.co.kr/lt645/intro"
 PENSION_INTRO_URL = "https://www.dhlottery.co.kr/pt720/intro"
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
@@ -201,8 +203,8 @@ async def get_pension_winning_numbers() -> dict:
 
 async def async_main():
     try:
-        lotto_purchased = load_lotto_purchased()
-        pension_purchased = load_pension_purchased()
+        lotto_purchased = load_lotto_purchased() if CHECK_LOTTO645 else None
+        pension_purchased = load_pension_purchased() if CHECK_PENSION else None
     except Exception as e:
         notify_error(f"구매 번호 파싱 오류: {e}")
         return
