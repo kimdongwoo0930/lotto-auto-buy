@@ -267,7 +267,9 @@ class Win720:
             soup = BS(res.text, "html5lib")
             found = soup.find("strong", id="drwNo720")
             if found:
-                return str(int(found.text) - 1)
+                round_num = int(found.text)
+                print(f"🔍 drwNo720 원본값: {round_num}")
+                return str(round_num)
             raise ValueError("drwNo720 not found")
         except Exception:
             base_date = datetime.datetime(2024, 12, 26)
@@ -276,7 +278,7 @@ class Win720:
             days_ahead = (3 - today.weekday()) % 7
             next_thursday = today + datetime.timedelta(days=days_ahead)
             weeks = (next_thursday - base_date).days // 7
-            return str(base_round + weeks - 1)
+            return str(base_round + weeks)
 
     def _makeAutoNumbers(self, auth_ctrl: AuthController, win720_round: str) -> str:
         payload = "ROUND={}&round={}&LT_EPSD={}&SEL_NO=&BUY_CNT=&AUTO_SEL_SET=SA&SEL_CLASS=&BUY_TYPE=A&ACCS_TYPE=01".format(
