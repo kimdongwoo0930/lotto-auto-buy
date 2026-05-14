@@ -7,7 +7,9 @@ import json
 import asyncio
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+KST = timezone(timedelta(hours=9))
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -83,35 +85,12 @@ def buy_lotto(numbers: list[list[int]], dry_run: bool = False) -> list[list[int]
 
     print(f"\n🎰 dhapi로 로또 {count}장 구매 중...")
 
-    # 1차 시도: -m 플래그로 AI 추천 번호를 직접 지정
-    try:
-        args = ["buy-lotto645"]
-        for nums in numbers:
-            args.extend(["-m", ",".join(str(n) for n in nums)])
-        args.append("-y")
-        output = _run_dhapi(*args)
-        print(f"📋 구매 결과:\n{output}")
-        purchased = _parse_purchased_numbers(output)
-        if purchased:
-            return purchased
-        print("⚠️  번호 파싱 실패 → AI 추천 번호 사용")
-        return numbers
-    except Exception as e:
-        print(f"⚠️  수동 번호 지정 실패 ({e}) → 자동 모드로 재시도")
-
-    # 2차 시도: --auto 플래그로 자동 선택
-    try:
-        output = _run_dhapi("buy-lotto645", f"--auto={count}", "-y")
-        print(f"📋 구매 결과 (자동):\n{output}")
-        purchased = _parse_purchased_numbers(output)
-        if purchased:
-            return purchased
-    except Exception as e:
-        print(f"⚠️  자동 모드 실패 ({e})")
-
-    # 최종 fallback: AI 추천 번호를 구매 번호로 기록
-    print("⚠️  dhapi 파싱 실패 → AI 추천 번호를 구매 번호로 대체 기록")
-    return numbers
+    # AI 추천 번호를 수동모드로 구매: '4,15,23,31,38,42' 형태로 전달
+    args = ["buy-lotto645"] + [",".join(str(n) for n in nums) for nums in numbers] + ["-y"]
+    output = _run_dhapi(*args)
+    print(f"📋 구매 결과:\n{output}")
+    purchased = _parse_purchased_numbers(output)
+    return purchased if purchased else numbers
 
 
 def _get_auth_controller():
@@ -173,7 +152,7 @@ def save_purchased_json(numbers: list[list[int]], is_test: bool = False) -> None
     json_path = os.path.join(DATA_DIR, filename)
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(
-            {"date": datetime.now().strftime("%Y-%m-%d"), "test": is_test, "numbers": numbers},
+            {"date": datetime.now(KST).strftime("%Y-%m-%d"), "test": is_test, "numbers": numbers},
             f, ensure_ascii=False, indent=2,
         )
     print(f"💾 구매 번호 저장: {json_path}")
@@ -185,7 +164,7 @@ def save_pension_purchased_json(tickets: list[dict], is_test: bool = False) -> N
     json_path = os.path.join(DATA_DIR, filename)
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(
-            {"date": datetime.now().strftime("%Y-%m-%d"), "test": is_test, "tickets": tickets},
+            {"date": datetime.now(KST).strftime("%Y-%m-%d"), "test": is_test, "tickets": tickets},
             f, ensure_ascii=False, indent=2,
         )
     print(f"💾 연금복권 구매 저장: {json_path}")
@@ -195,7 +174,7 @@ def write_summary(numbers: list[list[int]]) -> None:
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:
-            f.write(f"## 🎰 로또 구매 완료 ({datetime.now().strftime('%Y-%m-%d')})\n\n")
+            f.write(f"## 🎰 로또 구매 완료 ({datetime.now(KST).strftime('%Y-%m-%d')})\n\n")
             f.write("| 게임 | 번호 |\n|------|------|\n")
             for i, nums in enumerate(numbers):
                 f.write(f"| {i+1} | {' - '.join(map(str, nums))} |\n")
@@ -218,7 +197,7 @@ async def main() -> None:
     pension = settings.get("pension_tickets", 0) if buy_pension  else 0
 
     print(f"🚀 로또 자동 구매 시작 | 로또 {total}장 / 연금복권 {pension}장")
-    print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"⏰ {datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')}")
     if DRY_RUN:
         print("🧪 DRY_RUN 활성화: 실제 구매 없이 흐름만 테스트합니다.")
 

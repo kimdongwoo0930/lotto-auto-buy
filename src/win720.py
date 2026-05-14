@@ -112,36 +112,16 @@ class AuthController:
 
         if "loginSuccess" not in resp.url:
             raise Exception(f"RSA 로그인 실패: 최종 URL={resp.url}")
-        print(f"✅ www RSA 로그인 성공")
 
         # 5. 메인 페이지 방문 (세션 안정화)
         self.http_client.get(f"{self.BASE_URL}/main")
 
-        # 6. 전체 쿠키 확인
-        cookie_dump = {
-            f"{d}{p}:{n}": c.value[:12] + "..."
-            for d, paths in self.http_client.session.cookies._cookies.items()
-            for p, cookies in paths.items()
-            for n, c in cookies.items()
-        }
-        print(f"🔍 로그인 후 쿠키: {cookie_dump}")
-
-        # 7. el.dhlottery.co.kr 게임 페이지 직접 방문 (el 세션 초기화)
-        el_resp = self.http_client.get(
+        # 6. el.dhlottery.co.kr 게임 페이지 직접 방문 (el 세션 초기화)
+        self.http_client.get(
             "https://el.dhlottery.co.kr/game/pension720/game.jsp",
             headers={"Referer": f"{self.BASE_URL}/"},
             allow_redirects=True,
         )
-        print(f"🔍 el 게임페이지 최종 URL: {el_resp.url}")
-
-        # 8. el 도메인 쿠키 확인
-        cookie_dump2 = {
-            f"{d}{p}:{n}": c.value[:12] + "..."
-            for d, paths in self.http_client.session.cookies._cookies.items()
-            for p, cookies in paths.items()
-            for n, c in cookies.items()
-        }
-        print(f"🔍 el 방문 후 쿠키: {cookie_dump2}")
 
         # el 도메인 DHJSESSIONID 우선, 없으면 공유 도메인 사용
         sid = (
@@ -154,7 +134,7 @@ class AuthController:
             raise Exception(f"연금복권 로그인 실패: DHJSESSIONID 없음. 쿠키: {all_cookies}")
 
         self._jsessionid = sid
-        print(f"✅ 연금복권 로그인 성공 (keyCode: {self._jsessionid[:16]}...)")
+        print(f"✅ 연금복권 로그인 성공")
 
     def get_current_session_id(self) -> str:
         return self._jsessionid
@@ -228,23 +208,17 @@ class Win720:
         except ValueError:
             raise ValueError(f"복호화 결과 파싱 실패: {repr(decrypted)[:500]}...")
 
-        print(f"🔍 makeAutoNumbers 복호화 결과: {decrypted[:200]}")
-        print(f"🔍 selLotNo(extracted_num): {repr(extracted_num)}")
-
         if not extracted_num:
-            print(f"❌ selLotNo가 비어있음 → 조기 반환. 전체 복호화 결과: {decrypted}")
-            return json.loads(decrypted)
+            msg = json.loads(decrypted).get("resultMsg", "알 수 없는 오류")
+            raise ValueError(f"연금복권 번호 생성 실패: {msg}")
 
         groups = sorted(random.sample(range(1, 6), count))
-        print(f"🎲 선택된 조: {groups}")
 
         orderNo, orderDate = self._doOrderRequest(auth_ctrl, win720_round, extracted_num)
-        print(f"🔍 orderNo={orderNo}, orderDate={orderDate}")
 
         conn_result = self._doConnPro(
             auth_ctrl, win720_round, extracted_num, username, orderNo, orderDate, groups
         )
-        print(f"🔍 connPro 결과: {conn_result[:300]}")
         body = json.loads(conn_result)
 
         self._show_result(body)
@@ -267,9 +241,7 @@ class Win720:
             soup = BS(res.text, "html5lib")
             found = soup.find("strong", id="drwNo720")
             if found:
-                round_num = int(found.text)
-                print(f"🔍 drwNo720 원본값: {round_num}")
-                return str(round_num)
+                return str(int(found.text))
             raise ValueError("drwNo720 not found")
         except Exception:
             base_date = datetime.datetime(2024, 12, 26)
@@ -286,13 +258,6 @@ class Win720:
         )
         headers = self._generate_req_headers(auth_ctrl)
         data = {"q": requests.utils.quote(self._encText(payload))}
-
-        # 실제로 전송되는 쿠키 확인
-        import requests as _req
-        test_req = _req.Request('POST', 'https://el.dhlottery.co.kr/makeAutoNo.do')
-        prepared = self.http_client.session.prepare_request(test_req)
-        print(f"🔍 el.dhlottery 요청 쿠키: {prepared.headers.get('Cookie', 'NONE')}")
-        print(f"🔍 사용 회차: {win720_round}")
 
         for attempt in range(5):
             try:
