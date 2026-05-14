@@ -215,6 +215,13 @@ class Win720:
         headers = self._generate_req_headers(auth_ctrl)
         data = {"q": requests.utils.quote(self._encText(payload))}
 
+        # 실제로 전송되는 쿠키 확인
+        import requests as _req
+        test_req = _req.Request('POST', 'https://el.dhlottery.co.kr/makeAutoNo.do')
+        prepared = self.http_client.session.prepare_request(test_req)
+        print(f"🔍 el.dhlottery 요청 쿠키: {prepared.headers.get('Cookie', 'NONE')}")
+        print(f"🔍 사용 회차: {win720_round}")
+
         for attempt in range(5):
             try:
                 res = self.http_client.post(
