@@ -252,6 +252,10 @@ if __name__ == "__main__":
         notify_error(f"💰 예치금 부족\n\n{e}")
         raise
     except Exception as e:
-        print(f"❌ 오류: {e}")
-        notify_error(f"❌ 오류 발생\n\n{e}")
+        msg = str(e)
+        if "판매시간" in msg or "판매 시간" in msg:
+            print(f"⏰ 판매시간 외 실행: {msg}")
+        else:
+            print(f"❌ 오류: {msg}")
+            notify_error(f"❌ 오류 발생\n\n{msg}")
         raise

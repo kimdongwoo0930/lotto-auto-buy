@@ -1,6 +1,6 @@
 {
   // 구매할 장수 (로또 6/45)
-  "total_tickets": 1,
+  "total_tickets": 3,
   // 구매할 장수 (연금복권 720+, 0이면 미구매)
-  "pension_tickets": 1
+  "pension_tickets": 2
 }
