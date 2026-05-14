@@ -76,15 +76,19 @@ class AuthController:
         # 2. el.dhlottery.co.kr 세션 초기화 (연금복권 서브도메인 별도 세션)
         self.http_client.get("https://el.dhlottery.co.kr/game/pension720/game.jsp")
 
-        # 3. el.dhlottery.co.kr의 JSESSIONID 획득
-        self._jsessionid = self.http_client.session.cookies.get(
-            "JSESSIONID", domain="el.dhlottery.co.kr"
-        ) or self.http_client.session.cookies.get("JSESSIONID", "")
+        # 3. el.dhlottery.co.kr의 세션 ID 획득 (DHJSESSIONID 또는 JSESSIONID)
+        cookies = self.http_client.session.cookies
+        self._jsessionid = (
+            cookies.get("DHJSESSIONID", domain="el.dhlottery.co.kr")
+            or cookies.get("JSESSIONID", domain="el.dhlottery.co.kr")
+            or cookies.get("DHJSESSIONID", "")
+            or cookies.get("JSESSIONID", "")
+        )
 
         if not self._jsessionid:
-            all_cookies = {c.name: c.value for c in self.http_client.session.cookies}
+            all_cookies = {c.name: c.value for c in cookies}
             raise Exception(
-                f"연금복권 로그인 실패: JSESSIONID를 가져올 수 없습니다. "
+                f"연금복권 로그인 실패: 세션 ID를 가져올 수 없습니다. "
                 f"수신된 쿠키: {list(all_cookies.keys())}"
             )
 
