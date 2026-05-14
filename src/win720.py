@@ -74,26 +74,14 @@ class AuthController:
         )
         resp.raise_for_status()
 
-        www_cookies = {c.name: (c.value, c.domain) for c in self.http_client.session.cookies}
-        print(f"🔍 www 로그인 후 쿠키: {list(www_cookies.keys())}")
-
-        # 3. www 세션 ID 획득 (암호화 키로 사용)
-        self._jsessionid = (
-            self.http_client.session.cookies.get("JSESSIONID", domain="www.dhlottery.co.kr")
-            or self.http_client.session.cookies.get("JSESSIONID", "")
-        )
-        print(f"🔍 www JSESSIONID: {self._jsessionid[:8] if self._jsessionid else 'None'}...")
-
-        # 4. el.dhlottery.co.kr 접속 (공유 도메인 쿠키로 인증 전달)
-        self.http_client.get("https://el.dhlottery.co.kr/game/pension720/game.jsp")
-
-        el_cookies = {c.name: c.domain for c in self.http_client.session.cookies}
-        print(f"🔍 el 접속 후 전체 쿠키: {el_cookies}")
+        # 3. DHJSESSIONID 획득 (암호화 키 + 공유 도메인 인증 쿠키)
+        #    domain='.dhlottery.co.kr' 이므로 el.dhlottery.co.kr 요청에도 자동 전송
+        self._jsessionid = self.http_client.session.cookies.get("DHJSESSIONID", "")
 
         if not self._jsessionid:
+            all_cookies = [c.name for c in self.http_client.session.cookies]
             raise Exception(
-                f"연금복권 로그인 실패: www JSESSIONID 없음. "
-                f"쿠키 목록: {list(www_cookies.keys())}"
+                f"연금복권 로그인 실패: DHJSESSIONID 없음. 쿠키 목록: {all_cookies}"
             )
 
         print(f"✅ 연금복권 로그인 성공")
