@@ -49,7 +49,7 @@ jobs:
           LOTTO_PW: ${{ secrets.LOTTO_PW }}
         run: |
           mkdir -p ~/.dhapi
-          printf '[default]\nusername = %s\npassword = %s\n' \
+          printf '[default]\nusername = "%s"\npassword = "%s"\n' \
             "$LOTTO_ID" "$LOTTO_PW" > ~/.dhapi/credentials
 
       - name: 💸 연금복권 구매 실행

@@ -58,6 +58,7 @@ class AuthController:
         self._jsessionid = ""
 
     def login(self, username: str, password: str) -> None:
+        # 1. 메인 사이트 로그인
         self.http_client.get("https://www.dhlottery.co.kr/")
 
         resp = self.http_client.post(
@@ -72,9 +73,20 @@ class AuthController:
         )
         resp.raise_for_status()
 
-        self._jsessionid = self.http_client.session.cookies.get("JSESSIONID", "")
+        # 2. el.dhlottery.co.kr 세션 초기화 (연금복권 서브도메인 별도 세션)
+        self.http_client.get("https://el.dhlottery.co.kr/game/pension720/game.jsp")
+
+        # 3. el.dhlottery.co.kr의 JSESSIONID 획득
+        self._jsessionid = self.http_client.session.cookies.get(
+            "JSESSIONID", domain="el.dhlottery.co.kr"
+        ) or self.http_client.session.cookies.get("JSESSIONID", "")
+
         if not self._jsessionid:
-            raise Exception("연금복권 로그인 실패: JSESSIONID를 가져올 수 없습니다")
+            all_cookies = {c.name: c.value for c in self.http_client.session.cookies}
+            raise Exception(
+                f"연금복권 로그인 실패: JSESSIONID를 가져올 수 없습니다. "
+                f"수신된 쿠키: {list(all_cookies.keys())}"
+            )
 
         print(f"✅ 연금복권 로그인 성공")
 
