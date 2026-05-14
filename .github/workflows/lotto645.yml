@@ -1,0 +1,114 @@
+name: 🎰 로또 6/45
+
+on:
+  schedule:
+    - cron: "0 3 * * 5"   # 금요일 12:00 KST (구매)
+    - cron: "0 13 * * 6"  # 토요일 22:00 KST (당첨 확인)
+
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "실행 모드"
+        required: true
+        default: "buy"
+        type: choice
+        options:
+          - buy
+          - check
+          - buy+check
+      numbers:
+        description: "당첨 확인용 번호 (JSON: [[1,2,3,4,5,6]])"
+        required: false
+        default: ""
+
+jobs:
+  # ════════════════════════════════════════
+  # JOB 1: 로또 6/45 구매
+  # ════════════════════════════════════════
+  buy-lotto645:
+    name: 🎟️ 로또 6/45 구매
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    if: |
+      (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 5') ||
+      (github.event_name == 'workflow_dispatch' && (inputs.mode == 'buy' || inputs.mode == 'buy+check'))
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 📦 의존성 설치
+        run: pip install dhapi httpx python-dotenv
+
+      - name: 🔑 dhapi 자격증명 설정
+        env:
+          LOTTO_ID: ${{ secrets.LOTTO_ID }}
+          LOTTO_PW: ${{ secrets.LOTTO_PW }}
+        run: |
+          mkdir -p ~/.dhapi
+          printf '[default]\nusername = %s\npassword = %s\n' \
+            "$LOTTO_ID" "$LOTTO_PW" > ~/.dhapi/credentials
+
+      - name: 🎰 로또 6/45 구매 실행
+        env:
+          LOTTO_ID: ${{ secrets.LOTTO_ID }}
+          LOTTO_PW: ${{ secrets.LOTTO_PW }}
+          API_KEY: ${{ secrets.API_KEY }}
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          DRY_RUN: "false"
+          BUY_LOTTO645: "true"
+          BUY_PENSION: "false"
+        run: cd src && python lotto_buyer.py
+
+      - name: 💾 구매 번호 커밋 & 푸시
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/purchased.json
+          git diff --staged --quiet || git commit -m "🎰 로또 구매 번호 저장 $(date +'%Y-%m-%d')"
+          git push
+
+  # ════════════════════════════════════════
+  # JOB 2: 당첨 확인
+  # ════════════════════════════════════════
+  check-winner:
+    name: 🏆 당첨 확인
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [buy-lotto645]
+    if: |
+      always() && (
+        (github.event_name == 'schedule' && github.event.schedule == '0 13 * * 6') ||
+        (github.event_name == 'workflow_dispatch' && (inputs.mode == 'check' || inputs.mode == 'buy+check'))
+      )
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 📦 의존성 설치
+        run: |
+          pip install playwright httpx python-dotenv
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: 🏆 당첨 확인 실행
+        env:
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          PURCHASED_NUMBERS: ${{ inputs.numbers }}
+          DRY_RUN: "false"
+        run: cd src && python check_number.py
