@@ -93,7 +93,10 @@ def buy_lotto(numbers: list[list[int]], dry_run: bool = False) -> list[list[int]
     output = _run_dhapi(*args)
     print(f"📋 구매 결과:\n{output}")
     purchased = _parse_purchased_numbers(output)
-    return purchased if purchased else numbers
+    # dhapi 출력에 번호가 중복 출력될 경우 count만큼만 사용
+    if purchased:
+        return purchased[:count]
+    return numbers
 
 
 def _get_auth_controller():
