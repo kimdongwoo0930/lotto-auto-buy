@@ -241,7 +241,7 @@ class Win720:
             soup = BS(res.text, "html5lib")
             found = soup.find("strong", id="drwNo720")
             if found:
-                return str(int(found.text))
+                return str(int(found.text) + 1)  # drwNo720은 마지막 추첨 회차, 구매는 +1 회차
             raise ValueError("drwNo720 not found")
         except Exception:
             base_date = datetime.datetime(2024, 12, 26)
