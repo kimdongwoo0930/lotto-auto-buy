@@ -245,7 +245,7 @@ class Win720:
             raise ValueError("drwNo720 not found")
         except Exception:
             base_date = datetime.datetime(2024, 12, 26)
-            base_round = 244
+            base_round = 242
             today = datetime.datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
             days_ahead = (3 - today.weekday()) % 7
             next_thursday = today + datetime.timedelta(days=days_ahead)
@@ -395,3 +395,22 @@ class Win720:
         result = body.get("result", {})
         if result.get("resultMsg", "FAILURE").upper() != "SUCCESS":
             return
+
+
+if __name__ == "__main__":
+    w = Win720()
+
+    # 스크래핑 직접 확인
+    try:
+        res = w.http_client.get("https://www.dhlottery.co.kr/common.do?method=main")
+        soup = BS(res.text, "html5lib")
+        found = soup.find("strong", id="drwNo720")
+        if found:
+            print(f"drwNo720 스크래핑 성공: {found.text} → 구매 회차: {int(found.text) + 1}")
+        else:
+            print("drwNo720 스크래핑 실패 → fallback 사용")
+    except Exception as e:
+        print(f"스크래핑 예외: {e} → fallback 사용")
+
+    round_no = w._get_round()
+    print(f"_get_round() 결과: {round_no}")
