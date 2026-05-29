@@ -153,7 +153,7 @@ def notify_result(
     header = "🎊 당첨됐어요!!!" if has_win else "😢 이번 주는 아쉽네요"
 
     lines = [
-        f"🎰 제{draw_no}회 당첨 결과",
+        f"🎰 제{draw_no - 1}회 당첨 결과",
         f"당첨번호: {winning_str}",
         f"보너스:   {bonus:02d}",
         "--------------------",
@@ -215,7 +215,7 @@ def notify_pension_result(
             has_win = True
         results.append(f"{i+1}게임 {rank_labels[rank]}\n   {ticket['group']}조 {ticket['number']}")
 
-    title = f"💸 연금복권 제{draw_no}회 결과" if draw_no else "💸 연금복권 당첨 결과"
+    title = f"💸 연금복권 제{draw_no - 1}회 결과" if draw_no else "💸 연금복권 당첨 결과"
     header = "🎊 당첨됐어요!!!" if has_win else "😢 이번 주는 아쉽네요"
     lines = [
         title,
