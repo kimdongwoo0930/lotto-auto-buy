@@ -159,9 +159,6 @@ def notify_result(
         "--------------------",
         header,
         "--------------------",
-    ] + results + [
-        "--------------------",
-        "👉 dhlottery.co.kr",
     ]
     send_message("\n".join(lines))
 
@@ -224,9 +221,6 @@ def notify_pension_result(
         "--------------------",
         header,
         "--------------------",
-    ] + results + [
-        "--------------------",
-        "👉 dhlottery.co.kr",
     ]
     send_message("\n".join(lines))
 
