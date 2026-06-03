@@ -232,25 +232,68 @@ class Win720:
     def _generate_req_headers(self, auth_ctrl: AuthController) -> dict:
         return auth_ctrl.add_auth_cred_to_headers(self._REQ_HEADERS)
 
-    def _get_round(self) -> str:
-        try:
-            res = self.http_client.get(
-                "https://www.dhlottery.co.kr/common.do?method=main",
-                headers=self._REQ_HEADERS
-            )
-            soup = BS(res.text, "html5lib")
-            found = soup.find("strong", id="drwNo720")
+    def _extract_round_from_main(self, html: str) -> str | None:
+        soup = BS(html, "html5lib")
+
+        for selector in ("#wf720-round", ".wf720-round"):
+            found = soup.select_one(selector)
             if found:
-                return str(int(found.text) + 1)  # drwNo720은 마지막 추첨 회차, 구매는 +1 회차
-            raise ValueError("drwNo720 not found")
-        except Exception:
-            base_date = datetime.datetime(2024, 12, 26)
-            base_round = 242
-            today = datetime.datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
-            days_ahead = (3 - today.weekday()) % 7
-            next_thursday = today + datetime.timedelta(days=days_ahead)
-            weeks = (next_thursday - base_date).days // 7
-            return str(base_round + weeks)
+                match = re.search(r"([0-9,]+)", found.get_text(strip=True))
+                if match:
+                    return str(int(match.group(1).replace(",", "")) + 1)
+
+        found = soup.find("strong", id="drwNo720")
+        if found:
+            text = found.get_text(strip=True).replace(",", "")
+            if text.isdigit():
+                return str(int(text) + 1)  # 메인의 drwNo720은 마지막 추첨 회차라 구매 회차는 +1
+
+        patterns = [
+            r'class=["\'][^"\']*\bwf720-round\b[^"\']*["\'][^>]*>\s*[^0-9<]*([0-9,]+)',
+            r'id=["\']wf720-round["\'][^>]*>\s*[^0-9<]*([0-9,]+)',
+            r'class=["\'][^"\']*\bwf720-inbox\b[^"\']*\bswiper-slide-active\b[^"\']*["\'][^>]*data-psltepsd=["\']([0-9,]+)["\']',
+            r'data-psltepsd=["\']([0-9,]+)["\'][^>]*class=["\'][^"\']*\bwf720-inbox\b[^"\']*\bswiper-slide-active\b[^"\']*["\']',
+            r'id=["\']drwNo720["\'][^>]*>\s*([0-9,]+)\s*<',
+            r'drwNo720[^0-9]{0,80}([0-9,]+)',
+            r'연금복권720\+?[^0-9]{0,80}([0-9,]+)\s*회',
+        ]
+        for index, pattern in enumerate(patterns):
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                round_no = int(match.group(1).replace(",", ""))
+                round_no += 1
+                return str(round_no)
+
+        return None
+
+    def _get_round(self) -> str:
+        urls = [
+            "https://www.dhlottery.co.kr/common.do?method=main",
+            "https://www.dhlottery.co.kr/",
+        ]
+        errors = []
+
+        for url in urls:
+            try:
+                res = self.http_client.get(url, headers=self._REQ_HEADERS, timeout=20)
+                res.raise_for_status()
+                round_no = self._extract_round_from_main(res.text)
+                if round_no:
+                    print(f"🔎 연금복권 구매 회차: {round_no}회 (메인 페이지 기준)")
+                    return round_no
+                errors.append(f"{url}: wf720-round/drwNo720 not found")
+            except Exception as e:
+                errors.append(f"{url}: {e}")
+
+        base_date = datetime.datetime(2024, 12, 26)
+        base_round = 243
+        today = datetime.datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
+        days_ahead = (3 - today.weekday()) % 7
+        next_thursday = today + datetime.timedelta(days=days_ahead)
+        weeks = (next_thursday - base_date).days // 7
+        round_no = str(base_round + weeks)
+        print(f"⚠️  메인 페이지 회차 조회 실패 → 날짜 기준 {round_no}회 사용 ({'; '.join(errors)})")
+        return round_no
 
     def _makeAutoNumbers(self, auth_ctrl: AuthController, win720_round: str) -> str:
         payload = "ROUND={}&round={}&LT_EPSD={}&SEL_NO=&BUY_CNT=&AUTO_SEL_SET=SA&SEL_CLASS=&BUY_TYPE=A&ACCS_TYPE=01".format(
@@ -399,18 +442,5 @@ class Win720:
 
 if __name__ == "__main__":
     w = Win720()
-
-    # 스크래핑 직접 확인
-    try:
-        res = w.http_client.get("https://www.dhlottery.co.kr/common.do?method=main")
-        soup = BS(res.text, "html5lib")
-        found = soup.find("strong", id="drwNo720")
-        if found:
-            print(f"drwNo720 스크래핑 성공: {found.text} → 구매 회차: {int(found.text) + 1}")
-        else:
-            print("drwNo720 스크래핑 실패 → fallback 사용")
-    except Exception as e:
-        print(f"스크래핑 예외: {e} → fallback 사용")
-
     round_no = w._get_round()
     print(f"_get_round() 결과: {round_no}")
